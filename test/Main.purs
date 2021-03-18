@@ -14,4 +14,6 @@ main = do
   log $ show d
   d <- parseCirruEdn "do true"
   log $ show d
+  d <- parseCirruEdn "[] true true true"
+  log $ show d
   log "You should add some tests."

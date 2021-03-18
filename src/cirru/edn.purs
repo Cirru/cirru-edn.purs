@@ -10,9 +10,9 @@ import Data.Array (head, length, (!!))
 import Data.Array as DataArr
 import Data.Either (Either(..))
 import Data.Map.Internal (Map)
-import Data.Maybe (Maybe(..))
+import Data.Maybe (Maybe(..), fromJust)
 import Data.Number as DataNum
-import Data.Set (Set)
+import Data.Set (Set, fromFoldable, toUnfoldable)
 import Data.String.Common (joinWith)
 import Data.String.NonEmpty.CodeUnits (charAt, drop)
 import Data.String.NonEmpty.Internal (fromString, unsafeFromString, toString)
@@ -22,6 +22,16 @@ import Data.Traversable (traverse)
 import Effect (Effect)
 import Effect.Class.Console (log)
 import Effect.Exception (throw, error)
+import Partial.Unsafe (unsafePartial)
+import Debug (spy)
+
+type CrEdnKv = { k :: CirruEdn, v :: CirruEdn }
+
+-- TODO
+-- newtype CrEdnKv = CrEdnKv { k :: CirruEdn, v :: CirruEdn }
+
+-- instance showCrEdnKv :: Show CrEdnKv where
+--   show x = (show x.k) <> (show x.v)
 
 data CirruEdn = CrEdnString String |
                 CrEdnNumber Number |
@@ -29,8 +39,10 @@ data CirruEdn = CrEdnString String |
                 CrEdnSymbol String |
                 CrEdnBool Boolean |
                 CrEdnList (Array CirruEdn) |
-                CrEdnSet (Set CirruEdn) |
-                CrEdnMap (Map CirruEdn CirruEdn) |
+                -- for EDN, use Array for convenience
+                -- need extra handling when hydrating into data
+                CrEdnSet (Array CirruEdn) |
+                CrEdnMap (Array CrEdnKv) |
                 CrEdnRecord String (Array String) (Array CirruEdn) |
                 CrEdnQuote CirruNode |
                 CrEdnNil
@@ -81,17 +93,39 @@ extractCirruEdn (CirruList xs) = case (xs !! 0) of
       "do" -> case (xs !! 1) of
         Nothing -> Left (CirruList xs)
         Just content -> extractCirruEdn content
-      "[]" -> do
-        ys <- traverse extractCirruEdn (DataArr.drop 1 xs)
-        pure $ CrEdnList ys
-      "{}" -> pure $ CrEdnNil
-      "#{}" -> pure $ CrEdnNil
+      "[]" -> extractList (DataArr.drop 1 xs)
+      "{}" -> extractMap (DataArr.drop 1 xs)
+      "#{}" -> extractSet (DataArr.drop 1 xs)
       "%{}" -> pure $ CrEdnNil
       _ -> Left (CirruList xs)
 
+extractKeyValuePair :: CirruNode -> Either CirruNode CrEdnKv
+extractKeyValuePair (CirruLeaf s) = Left (CirruLeaf s)
+extractKeyValuePair (CirruList xs) = if (length xs) == 2
+  then do
+    k <- extractCirruEdn $ unsafePartial $ fromJust $ xs !! 0
+    v <- extractCirruEdn $ unsafePartial $ fromJust $ xs !! 1
+    Right {k: k, v: v}
+  else Left (CirruList xs)
+
+extractMap :: (Array CirruNode) -> CrEdnParsed
+extractMap xs = do
+  ys <- traverse extractKeyValuePair xs
+  Right $ CrEdnMap ys
+
+extractList :: (Array CirruNode) -> CrEdnParsed
+extractList xs = do
+  ys <- traverse extractCirruEdn xs
+  Right $ CrEdnList ys
+
+extractSet :: (Array CirruNode) -> CrEdnParsed
+extractSet xs = do
+  ys <- traverse extractCirruEdn xs
+  Right $ CrEdnSet ys
+
 parseCirruEdn :: String -> CrEdnParsed
 parseCirruEdn s = case (parseCirru s) of
-  CirruLeaf s -> Left (CirruLeaf s)
+  CirruLeaf leaf -> Left (CirruLeaf leaf)
   CirruList xs -> if xs == []
     then Left (CirruList [])
     else if (length xs) /= 1
@@ -118,6 +152,11 @@ instance cirruEdnEq :: Eq CirruEdn where
 instance showCirruEdn :: Show CirruEdn where
   show CrEdnNil = "nil"
   show (CrEdnBool x) = show x
+  show (CrEdnKeyword x) = ":" <> x
+  show (CrEdnSymbol x) = "'" <> x
+  show (CrEdnNumber x) = show x
   show (CrEdnQuote x) = "(quote " <> (show x) <> ")"
   show (CrEdnList xs) = "([] " <> (joinWith " " (map show xs)) <> ")"
+  show (CrEdnSet xs) = "(#{} " <> (joinWith " " (map show xs)) <> ")"
+  show (CrEdnMap xs) = "({} " <> (joinWith ", " (map show xs)) <> ")"
   show _  = "TODO"

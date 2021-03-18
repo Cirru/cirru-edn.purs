@@ -1,30 +1,27 @@
 module Cirru.Edn where
 
-import Prelude
-
-import Data.Eq
 import Data.Either
-import Data.Maybe (Maybe(..))
-import Data.Map.Internal (Map)
-import Data.Number as DataNum
-import Data.Array (head, length, (!!))
-import Data.Array as DataArr
-import Data.Set (Set)
-
-import Effect.Class.Console (log)
-
-import Data.String.NonEmpty.CodeUnits (charAt, drop)
-import Data.String.NonEmpty.Internal (fromString, unsafeFromString, toString)
-import Data.String.Common (joinWith)
-
-import Data.String.Regex (regex, test)
-import Data.String.Regex.Flags (noFlags)
-
-import Effect (Effect)
-import Effect.Exception (throw, error)
+import Data.Eq
+import Prelude
 
 import Cirru.Node (CirruNode(..))
 import Cirru.Parser (parseCirru)
+import Data.Array (head, length, (!!))
+import Data.Array as DataArr
+import Data.Either (Either(..))
+import Data.Map.Internal (Map)
+import Data.Maybe (Maybe(..))
+import Data.Number as DataNum
+import Data.Set (Set)
+import Data.String.Common (joinWith)
+import Data.String.NonEmpty.CodeUnits (charAt, drop)
+import Data.String.NonEmpty.Internal (fromString, unsafeFromString, toString)
+import Data.String.Regex (regex, test)
+import Data.String.Regex.Flags (noFlags)
+import Data.Traversable (traverse)
+import Effect (Effect)
+import Effect.Class.Console (log)
+import Effect.Exception (throw, error)
 
 data CirruEdn = CrEdnString String |
                 CrEdnNumber Number |
@@ -38,81 +35,72 @@ data CirruEdn = CrEdnString String |
                 CrEdnQuote CirruNode |
                 CrEdnNil
 
-mapItems :: forall a b. (a -> Effect b) -> (Array a) -> Effect (Array b)
-mapItems fm xs = case (DataArr.head xs) of
-  Nothing -> pure []
-  Just x0 -> do
-    ys <- mapItems fm (DataArr.drop 1 xs)
-    (fm x0) >>= \y0 ->
-        pure $ DataArr.cons y0 ys
+type CrEdnParsed = Either CirruNode CirruEdn
 
-matchFloat :: String -> Effect Boolean
+matchFloat :: String -> Boolean
 matchFloat s = case (regex "^-?(\\d+)(\\.\\d*)?$" noFlags) of
-  Right pattern -> pure $ test pattern s
-  Left failure -> throw "Invalid regex expression"
+  Right pattern -> test pattern s
+  Left failure -> false
 
-extractCirruEdn :: CirruNode -> Effect CirruEdn
+extractCirruEdn :: CirruNode -> CrEdnParsed
 extractCirruEdn (CirruLeaf s) = case (fromString s) of
   Just ns -> case (charAt 0 ns) of
     Just '\'' -> case (drop 1 ns) of
       Just result -> pure $ CrEdnSymbol $ toString result
-      Nothing -> throw "failed drop"
+      Nothing -> Left (CirruLeaf s)
     Just ':' -> case (drop 1 ns) of
       Just result -> pure $ CrEdnKeyword $ toString result
-      Nothing -> throw "failed drop"
+      Nothing -> Left (CirruLeaf s)
     Just '"' -> case (drop 1 ns) of
       Just result -> pure $ CrEdnString $ toString result
-      Nothing -> throw "failed drop"
+      Nothing -> Left (CirruLeaf s)
     Just '|' -> case (drop 1 ns) of
       Just result -> pure $ CrEdnString $ toString result
-      Nothing -> throw "failed drop"
+      Nothing -> Left (CirruLeaf s)
     Just _ -> case s of
       "true" -> pure $ CrEdnBool true
       "false" -> pure $ CrEdnBool false
       "nil" -> pure $ CrEdnNil
-      _ -> do
-        isNumber <- matchFloat s
-        if isNumber
+      _ ->
+        if (matchFloat s)
           then case (DataNum.fromString s) of
             Just n -> pure $ CrEdnNumber n
-            Nothing -> throw "Unknown token, failed to parse number"
-        else throw "Unknown token, failed to parse"
-    Nothing -> throw "Invalid char from NonEmpty string"
-  Nothing -> throw "Empty string is invalid"
+            Nothing -> Left (CirruLeaf s)
+        else Left (CirruLeaf s)
+    Nothing -> Left (CirruLeaf s)
+  Nothing -> Left (CirruLeaf s)
 
 extractCirruEdn (CirruList xs) = case (xs !! 0) of
-  Nothing -> throw "lack of head in expression"
+  Nothing -> Left (CirruList xs)
   Just x0 -> case x0 of
-    CirruList _ -> throw "Expected operator at head"
+    CirruList _ -> Left (CirruList xs)
     CirruLeaf x -> case x of
       "quote" -> case (xs !! 1) of
-        Nothing -> throw "missing quote content"
+        Nothing -> Left (CirruList xs)
         Just content -> pure $ CrEdnQuote content
       "do" -> case (xs !! 1) of
-        Nothing -> throw "missing do content"
+        Nothing -> Left (CirruList xs)
         Just content -> extractCirruEdn content
       "[]" -> do
-        ys <- mapItems extractCirruEdn (DataArr.drop 1 xs)
+        ys <- traverse extractCirruEdn (DataArr.drop 1 xs)
         pure $ CrEdnList ys
       "{}" -> pure $ CrEdnNil
       "#{}" -> pure $ CrEdnNil
       "%{}" -> pure $ CrEdnNil
-      _ -> throw "Unknown syntax for data"
+      _ -> Left (CirruList xs)
 
-parseCirruEdn :: String -> Effect CirruEdn
+parseCirruEdn :: String -> CrEdnParsed
 parseCirruEdn s = case (parseCirru s) of
-  CirruLeaf _ -> throw "Never got top level token"
+  CirruLeaf s -> Left (CirruLeaf s)
   CirruList xs -> if xs == []
-    then do
-      log $ show xs
-      throw "Cannot be empty list"
+    then Left (CirruList [])
     else if (length xs) /= 1
-      then throw "Supposed to be only one item"
+      then Left (CirruList xs)
       else case (head xs) of
         Just ys -> case ys of
-          CirruLeaf _ -> throw "Expected list for EDN at first level"
+          CirruLeaf _ -> Left (CirruList xs)
           CirruList _ -> extractCirruEdn ys
-        Nothing -> throw "cannot be empty"
+        Nothing -> Left (CirruList xs)
 
 instance cirruEdnEq :: Eq CirruEdn where
   eq CrEdnNil CrEdnNil = true

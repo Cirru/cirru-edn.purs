@@ -5,15 +5,22 @@ import Prelude
 import Effect (Effect)
 import Effect.Class.Console (log)
 
-import Cirru.Edn (CirruEdn(..), parseCirruEdn)
+import Data.Either (Either(..))
+
+import Cirru.Edn (CirruEdn(..), parseCirruEdn, CrEdnParsed)
 
 main :: Effect Unit
 main = do
-  log "🍝"
-  d <- parseCirruEdn "quote $ demo"
-  log $ show d
-  d <- parseCirruEdn "do true"
-  log $ show d
-  d <- parseCirruEdn "[] true true true"
-  log $ show d
-  log "You should add some tests."
+  case (parseCirruEdn "quote $ demo") of
+    Right d -> log $ show d
+    Left failure -> log $ "Failed at: " <> (show failure)
+  case (parseCirruEdn "do true") of
+    Right d -> log $ show d
+    Left failure -> log $ "Failed at: " <> (show failure)
+  case (parseCirruEdn "[] true true true") of
+    Right d -> log $ show d
+    Left failure -> log $ "Failed at: " <> (show failure)
+
+  case (parseCirruEdn "[] true true $ [] true") of
+    Right d -> log $ show d
+    Left failure -> log $ "Failed at: " <> (show failure)

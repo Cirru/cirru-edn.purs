@@ -8,12 +8,14 @@ import Data.Maybe (Maybe(..))
 import Data.Map.Internal (Map)
 import Data.Number as DataNum
 import Data.Array (head, length, (!!))
+import Data.Array as DataArr
 import Data.Set (Set)
 
 import Effect.Class.Console (log)
 
 import Data.String.NonEmpty.CodeUnits (charAt, drop)
-import Data.String.NonEmpty.Internal (fromString, toString)
+import Data.String.NonEmpty.Internal (fromString, unsafeFromString, toString)
+import Data.String.Common (joinWith)
 
 import Data.String.Regex (regex, test)
 import Data.String.Regex.Flags (noFlags)
@@ -35,6 +37,14 @@ data CirruEdn = CrEdnString String |
                 CrEdnRecord String (Array String) (Array CirruEdn) |
                 CrEdnQuote CirruNode |
                 CrEdnNil
+
+mapItems :: forall a b. (a -> Effect b) -> (Array a) -> Effect (Array b)
+mapItems fm xs = case (DataArr.head xs) of
+  Nothing -> pure []
+  Just x0 -> do
+    ys <- mapItems fm (DataArr.drop 1 xs)
+    (fm x0) >>= \y0 ->
+        pure $ DataArr.cons y0 ys
 
 matchFloat :: String -> Effect Boolean
 matchFloat s = case (regex "^-?(\\d+)(\\.\\d*)?$" noFlags) of
@@ -81,7 +91,9 @@ extractCirruEdn (CirruList xs) = case (xs !! 0) of
       "do" -> case (xs !! 1) of
         Nothing -> throw "missing do content"
         Just content -> extractCirruEdn content
-      "[]" -> pure $ CrEdnNil
+      "[]" -> do
+        ys <- mapItems extractCirruEdn (DataArr.drop 1 xs)
+        pure $ CrEdnList ys
       "{}" -> pure $ CrEdnNil
       "#{}" -> pure $ CrEdnNil
       "%{}" -> pure $ CrEdnNil
@@ -99,7 +111,7 @@ parseCirruEdn s = case (parseCirru s) of
       else case (head xs) of
         Just ys -> case ys of
           CirruLeaf _ -> throw "Expected list for EDN at first level"
-          CirruList xs -> extractCirruEdn ys
+          CirruList _ -> extractCirruEdn ys
         Nothing -> throw "cannot be empty"
 
 instance cirruEdnEq :: Eq CirruEdn where
@@ -119,4 +131,5 @@ instance showCirruEdn :: Show CirruEdn where
   show CrEdnNil = "nil"
   show (CrEdnBool x) = show x
   show (CrEdnQuote x) = "(quote " <> (show x) <> ")"
+  show (CrEdnList xs) = "([] " <> (joinWith " " (map show xs)) <> ")"
   show _  = "TODO"

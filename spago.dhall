@@ -3,6 +3,7 @@
   [ "arrays"
   , "cirru-parser"
   , "console"
+  , "debug"
   , "effect"
   , "either"
   , "exceptions"

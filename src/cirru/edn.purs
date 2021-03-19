@@ -19,19 +19,22 @@ import Data.String.NonEmpty.Internal (fromString, unsafeFromString, toString)
 import Data.String.Regex (regex, test)
 import Data.String.Regex.Flags (noFlags)
 import Data.Traversable (traverse)
+import Debug (spy)
 import Effect (Effect)
 import Effect.Class.Console (log)
 import Effect.Exception (throw, error)
 import Partial.Unsafe (unsafePartial)
-import Debug (spy)
 
-type CrEdnKv = { k :: CirruEdn, v :: CirruEdn }
+data CrEdnKv = CrEdnKv CirruEdn CirruEdn
 
--- TODO
--- newtype CrEdnKv = CrEdnKv { k :: CirruEdn, v :: CirruEdn }
+instance showCrEdnKv :: Show CrEdnKv where
+  show (CrEdnKv k v) = "(" <> (show k) <> " " <> (show v) <> ")"
 
--- instance showCrEdnKv :: Show CrEdnKv where
---   show x = (show x.k) <> (show x.v)
+instance eqCrEdnKv :: Eq CrEdnKv where
+  eq (CrEdnKv k1 v1) (CrEdnKv k2 v2) = k1 == k2 && v1 == v2
+
+arrayGet :: forall a. Array a -> Int -> a
+arrayGet xs n = unsafePartial $ fromJust $ xs !! n
 
 data CirruEdn = CrEdnString String |
                 CrEdnNumber Number |
@@ -96,16 +99,65 @@ extractCirruEdn (CirruList xs) = case (xs !! 0) of
       "[]" -> extractList (DataArr.drop 1 xs)
       "{}" -> extractMap (DataArr.drop 1 xs)
       "#{}" -> extractSet (DataArr.drop 1 xs)
-      "%{}" -> pure $ CrEdnNil
+      "%{}" -> if (length xs) == 4
+        then extractRecord (arrayGet xs 1) (arrayGet xs 2) (arrayGet xs 3)
+        else Left (CirruList xs)
       _ -> Left (CirruList xs)
+
+allLeaves :: CirruNode -> Boolean
+allLeaves ys = case ys of
+  CirruLeaf _ -> false
+  CirruList xs -> case xs !! 0 of
+    Just x0 -> case x0 of
+      CirruList _ -> false
+      CirruLeaf _ -> allLeaves $ CirruList (DataArr.drop 1 xs)
+    Nothing -> true
+
+isLeaf :: CirruNode -> Boolean
+isLeaf x = case x of
+  CirruLeaf _ -> true
+  CirruList _ -> false
+
+getLeafStr :: CirruNode -> Either CirruNode String
+getLeafStr (CirruList xs) = Left (CirruList xs)
+getLeafStr (CirruLeaf s) = Right s
+
+-- cirruListLengh :: CirruNode ->
+
+getLeavesStr :: CirruNode -> Either CirruNode (Array String)
+getLeavesStr ys = case ys of
+  CirruLeaf _ -> Left ys
+  CirruList xs -> case xs !! 0 of
+    Nothing -> Right []
+    Just x0 -> case x0 of
+      CirruLeaf s -> do
+        follows <- getLeavesStr $ CirruList (DataArr.drop 1 xs)
+        Right $ DataArr.cons s follows
+      CirruList zs -> Left (CirruList zs)
+
+extractRecord :: CirruNode -> CirruNode -> CirruNode -> CrEdnParsed
+extractRecord name fields values = let
+    lengthMatched = case fields, values of
+      (CirruList xs), (CirruList ys) -> (length xs) == (length ys)
+      _, _ -> false
+    fitRecord = (isLeaf name) && lengthMatched && allLeaves fields
+  in if fitRecord
+    then do
+      nameInString <- getLeafStr name
+      fieldsString <- getLeavesStr fields
+      valueItems <- case values of
+        CirruList xs -> traverse extractCirruEdn xs
+        CirruLeaf _ -> Left values
+      Right $ CrEdnRecord nameInString fieldsString valueItems
+    else Left $ CirruList [name, fields, values]
 
 extractKeyValuePair :: CirruNode -> Either CirruNode CrEdnKv
 extractKeyValuePair (CirruLeaf s) = Left (CirruLeaf s)
 extractKeyValuePair (CirruList xs) = if (length xs) == 2
   then do
-    k <- extractCirruEdn $ unsafePartial $ fromJust $ xs !! 0
-    v <- extractCirruEdn $ unsafePartial $ fromJust $ xs !! 1
-    Right {k: k, v: v}
+    k <- extractCirruEdn $ arrayGet xs 0
+    v <- extractCirruEdn $ arrayGet xs 1
+    Right $ CrEdnKv k v
   else Left (CirruList xs)
 
 extractMap :: (Array CirruNode) -> CrEdnParsed
@@ -141,9 +193,11 @@ instance cirruEdnEq :: Eq CirruEdn where
   eq (CrEdnString x) (CrEdnString y) = x == y
   eq (CrEdnKeyword x) (CrEdnKeyword y) = x == y
   eq (CrEdnSymbol x) (CrEdnSymbol y) = x == y
+  eq (CrEdnNumber x) (CrEdnNumber y) = x == y
   eq (CrEdnBool x) (CrEdnBool y) = x == y
   eq (CrEdnQuote x) (CrEdnQuote y) = x == y
   eq (CrEdnList xs) (CrEdnList ys) = xs == ys
+  eq (CrEdnSet xs) (CrEdnSet ys) = xs == ys -- TODO need to handle Ord
   eq (CrEdnMap xs) (CrEdnMap ys) = xs == ys
   eq (CrEdnRecord xName xFields xs) (CrEdnRecord yName yFields ys) =
     xName == yName && xFields == yFields && xs == ys
@@ -154,9 +208,12 @@ instance showCirruEdn :: Show CirruEdn where
   show (CrEdnBool x) = show x
   show (CrEdnKeyword x) = ":" <> x
   show (CrEdnSymbol x) = "'" <> x
+  show (CrEdnString x) = "|" <> x
   show (CrEdnNumber x) = show x
   show (CrEdnQuote x) = "(quote " <> (show x) <> ")"
   show (CrEdnList xs) = "([] " <> (joinWith " " (map show xs)) <> ")"
   show (CrEdnSet xs) = "(#{} " <> (joinWith " " (map show xs)) <> ")"
-  show (CrEdnMap xs) = "({} " <> (joinWith ", " (map show xs)) <> ")"
-  show _  = "TODO"
+  show (CrEdnMap xs) = "({} " <> (joinWith " " (map show xs)) <> ")"
+  show (CrEdnRecord name fields values) = "(%{} " <> name <>
+    " (" <> (joinWith " " fields) <> ")" <>
+    " (" <> (joinWith " " (map show values)) <> ")"

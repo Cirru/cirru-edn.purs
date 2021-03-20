@@ -1,4 +1,4 @@
-{ name = "my-project"
+{ name = "cirru-edn"
 , dependencies =
   [ "arrays"
   , "cirru-parser"

@@ -25,6 +25,7 @@ import Effect.Class.Console (log)
 import Effect.Exception (throw, error)
 import Partial.Unsafe (unsafePartial)
 
+-- | Used inside Maps
 data CrEdnKv = CrEdnKv CirruEdn CirruEdn
 
 instance showCrEdnKv :: Show CrEdnKv where
@@ -33,9 +34,12 @@ instance showCrEdnKv :: Show CrEdnKv where
 instance eqCrEdnKv :: Eq CrEdnKv where
   eq (CrEdnKv k1 v1) (CrEdnKv k2 v2) = k1 == k2 && v1 == v2
 
+-- | short handle accessing Array
 arrayGet :: forall a. Array a -> Int -> a
 arrayGet xs n = unsafePartial $ fromJust $ xs !! n
 
+-- | data structure for Cirru EDN.Boolean
+-- | notice that Map and Set are not fully realized
 data CirruEdn = CrEdnString String |
                 CrEdnNumber Number |
                 CrEdnKeyword String |
@@ -50,13 +54,16 @@ data CirruEdn = CrEdnString String |
                 CrEdnQuote CirruNode |
                 CrEdnNil
 
+-- | if parsing failed, original Cirru Nodes are returned
 type CrEdnParsed = Either CirruNode CirruEdn
 
+-- | tests if thats a float
 matchFloat :: String -> Boolean
 matchFloat s = case (regex "^-?(\\d+)(\\.\\d*)?$" noFlags) of
   Right pattern -> test pattern s
   Left failure -> false
 
+-- | extra from Cirru Nodes
 extractCirruEdn :: CirruNode -> CrEdnParsed
 extractCirruEdn (CirruLeaf s) = case (fromString s) of
   Just ns -> case (charAt 0 ns) of
@@ -104,6 +111,8 @@ extractCirruEdn (CirruList xs) = case (xs !! 0) of
         else Left (CirruList xs)
       _ -> Left (CirruList xs)
 
+-- | returns false if it's a leaf,
+-- | returns false if there's array inside array
 allLeaves :: CirruNode -> Boolean
 allLeaves ys = case ys of
   CirruLeaf _ -> false
@@ -121,8 +130,6 @@ isLeaf x = case x of
 getLeafStr :: CirruNode -> Either CirruNode String
 getLeafStr (CirruList xs) = Left (CirruList xs)
 getLeafStr (CirruLeaf s) = Right s
-
--- cirruListLengh :: CirruNode ->
 
 getLeavesStr :: CirruNode -> Either CirruNode (Array String)
 getLeavesStr ys = case ys of
@@ -160,21 +167,27 @@ extractKeyValuePair (CirruList xs) = if (length xs) == 2
     Right $ CrEdnKv k v
   else Left (CirruList xs)
 
+-- | TODO, inherit Ord for Map
 extractMap :: (Array CirruNode) -> CrEdnParsed
 extractMap xs = do
   ys <- traverse extractKeyValuePair xs
   Right $ CrEdnMap ys
 
+-- | extract Cirru EDN list from Cirru Nodes
 extractList :: (Array CirruNode) -> CrEdnParsed
 extractList xs = do
   ys <- traverse extractCirruEdn xs
   Right $ CrEdnList ys
 
+-- | TODO, inherit Ord for Set
 extractSet :: (Array CirruNode) -> CrEdnParsed
 extractSet xs = do
   ys <- traverse extractCirruEdn xs
   Right $ CrEdnSet ys
 
+-- | parse String content into Cirru EDN structure,
+-- | returns original Cirru Nodes if pasing failed.
+-- | might be hard to figure out reason sometimes since failure not detailed
 parseCirruEdn :: String -> CrEdnParsed
 parseCirruEdn s = case (parseCirru s) of
   CirruLeaf leaf -> Left (CirruLeaf leaf)

@@ -7,7 +7,6 @@
 /.psc*
 /.purs*
 /.psa*
-/.spago
 
-
-/yarn-error.log
+.spago/*
+yarn-error.log

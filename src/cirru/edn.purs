@@ -4,8 +4,6 @@ import Data.Either
 import Data.Eq
 import Prelude
 
-import Cirru.Node (CirruNode(..))
-import Cirru.Parser (parseCirru)
 import Data.Array (head, length, (!!))
 import Data.Array as DataArr
 import Data.Either (Either(..))
@@ -25,6 +23,9 @@ import Data.Traversable (traverse)
 import Effect (Effect)
 import Effect.Class.Console (log)
 import Partial.Unsafe (unsafePartial)
+
+import Cirru.Node (CirruNode(..), isCirruLeaf)
+import Cirru.Parser (parseCirru)
 
 -- | only uused for displaying, internall it's using Tuple
 data CrEdnKv = CrEdnKv CirruEdn CirruEdn
@@ -121,11 +122,6 @@ allLeaves ys = case ys of
       CirruLeaf _ -> allLeaves $ CirruList (DataArr.drop 1 xs)
     Nothing -> true
 
-isLeaf :: CirruNode -> Boolean
-isLeaf x = case x of
-  CirruLeaf _ -> true
-  CirruList _ -> false
-
 getLeafStr :: CirruNode -> Either CirruNode String
 getLeafStr (CirruList xs) = Left (CirruList xs)
 getLeafStr (CirruLeaf s) = Right s
@@ -146,7 +142,7 @@ extractRecord name fields values = let
     lengthMatched = case fields, values of
       (CirruList xs), (CirruList ys) -> (length xs) == (length ys)
       _, _ -> false
-    fitRecord = (isLeaf name) && lengthMatched && allLeaves fields
+    fitRecord = (isCirruLeaf name) && lengthMatched && allLeaves fields
   in if fitRecord
     then do
       nameInString <- getLeafStr name

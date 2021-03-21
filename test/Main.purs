@@ -12,7 +12,7 @@ import Data.Map as DataMap
 import Cirru.Node (CirruNode(..))
 import Cirru.Edn (parseCirruEdn, CirruEdn(..))
 
-import Test.Unit (suite, test, timeout)
+import Test.Unit (suite, test)
 import Test.Unit.Main (runTest)
 import Test.Unit.Assert as Assert
 

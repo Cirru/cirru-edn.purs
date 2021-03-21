@@ -111,5 +111,5 @@ in  upstream
   with cirru-parser =
     { dependencies = [ "arrays" ]
     , repo = "https://github.com/Cirru/parser.purs.git"
-    , version = "v0.0.3"
+    , version = "v0.0.4"
     }

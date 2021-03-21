@@ -6,9 +6,11 @@ import Effect (Effect)
 import Effect.Class.Console (log)
 
 import Data.Either (Either(..))
+import Data.Tuple
+import Data.Map as DataMap
 
 import Cirru.Node (CirruNode(..))
-import Cirru.Edn (parseCirruEdn, CirruEdn(..), CrEdnKv(..))
+import Cirru.Edn (parseCirruEdn, CirruEdn(..))
 
 import Test.Unit (suite, test, timeout)
 import Test.Unit.Main (runTest)
@@ -58,9 +60,45 @@ main = do
 
       test "parse map" do
         Assert.equal (parseCirruEdn "{} (:a 1) (:b 2)")
-          (Right $ CrEdnMap [CrEdnKv (CrEdnKeyword "a") (CrEdnNumber 1.0),
-                             CrEdnKv (CrEdnKeyword "b") (CrEdnNumber 2.0) ])
+          (Right $ CrEdnMap $
+            DataMap.fromFoldable [Tuple (CrEdnKeyword "a") (CrEdnNumber 1.0),
+                                    Tuple (CrEdnKeyword "b") (CrEdnNumber 2.0) ])
 
       test "parse record" do
         Assert.equal (parseCirruEdn "%{} P (name age) (|Chen 20)")
           (Right $ CrEdnRecord "P" ["name", "age"] [CrEdnString "Chen", CrEdnNumber 20.0])
+
+  runTest do
+    suite "ordering" do
+      test "compare nodes" do
+        Assert.equal LT $ compare (parseCirruEdn "do false") (parseCirruEdn "do true")
+        Assert.equal LT $ compare (parseCirruEdn "do nil") (parseCirruEdn "do true")
+        Assert.equal LT $ compare (parseCirruEdn "do nil") (parseCirruEdn "do 1")
+        Assert.equal LT $ compare (parseCirruEdn "do |string") (parseCirruEdn "[]")
+        Assert.equal LT $ compare (parseCirruEdn "[]") (parseCirruEdn "#{}")
+        Assert.equal LT $ compare (parseCirruEdn "[] 1 2 3") (parseCirruEdn "#{}")
+        Assert.equal LT $ compare (parseCirruEdn "[] 1") (parseCirruEdn "[] 1 1")
+        Assert.equal LT $ compare (parseCirruEdn "#{}") (parseCirruEdn "{}")
+
+      test "compare sets" do
+        Assert.equal LT $ compare (parseCirruEdn "#{}") (parseCirruEdn "#{} 1")
+        Assert.equal LT $ compare (parseCirruEdn "#{}") (parseCirruEdn "#{} 1 2")
+        Assert.equal LT $ compare (parseCirruEdn "#{}") (parseCirruEdn "{}")
+        Assert.equal LT $ compare (parseCirruEdn "#{}") (parseCirruEdn "{} (:a 1)")
+        Assert.equal EQ $ compare (parseCirruEdn "#{}") (parseCirruEdn "#{}")
+        Assert.equal LT $ compare (parseCirruEdn "#{} 1") (parseCirruEdn "#{} 2")
+
+      test "compare set and record" do
+        Assert.equal LT $ compare (parseCirruEdn "{}") (parseCirruEdn "%{} name (a) (1)")
+        Assert.equal GT $ compare (parseCirruEdn "%{} name (a) (1)") (parseCirruEdn "#{}")
+        Assert.equal LT $ compare (parseCirruEdn "%{} name (a) (1)") (parseCirruEdn "%{} name (a) (2)")
+        Assert.equal LT $ compare (parseCirruEdn "%{} a (a) (1)") (parseCirruEdn "%{} z (a) (2)")
+        Assert.equal GT $ compare (parseCirruEdn "%{} z (a) (1)") (parseCirruEdn "%{} a (a) (2)")
+
+      test "test quote" do
+        Assert.equal LT $ compare (parseCirruEdn "quote $ def a") (parseCirruEdn "quote $ def b")
+        Assert.equal EQ $ compare (parseCirruEdn "quote $ def a") (parseCirruEdn "quote $ def a")
+        Assert.equal GT $ compare (parseCirruEdn "quote $ def b") (parseCirruEdn "quote $ def a")
+
+        Assert.equal LT $ compare (parseCirruEdn "quote $ def a") (parseCirruEdn "#{}")
+        Assert.equal LT $ compare (parseCirruEdn "do nil") (parseCirruEdn "quote $ def b")

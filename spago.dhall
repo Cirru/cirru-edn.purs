@@ -3,12 +3,9 @@
   [ "arrays"
   , "cirru-parser"
   , "console"
-  , "debug"
   , "effect"
   , "either"
-  , "exceptions"
   , "ordered-collections"
-  , "psci-support"
   , "strings"
   , "test-unit"
   ]

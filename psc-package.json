@@ -8,6 +8,5 @@
     "either",
     "cirru-parser",
     "prelude",
-    "psci-support"
   ]
 }

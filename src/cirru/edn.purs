@@ -19,10 +19,8 @@ import Data.String.NonEmpty.Internal (fromString, unsafeFromString, toString)
 import Data.String.Regex (regex, test)
 import Data.String.Regex.Flags (noFlags)
 import Data.Traversable (traverse)
-import Debug (spy)
 import Effect (Effect)
 import Effect.Class.Console (log)
-import Effect.Exception (throw, error)
 import Partial.Unsafe (unsafePartial)
 
 -- | Used inside Maps

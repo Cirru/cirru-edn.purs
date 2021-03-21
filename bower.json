@@ -19,12 +19,11 @@
   },
   "dependencies": {
     "purescript-prelude": "^5.0.0",
-    "purescript-cirru-parser": "^0.0.3",
+    "purescript-cirru-parser": "https://github.com/Cirru/parser.purs.git#^0.0.3",
     "purescript-console": "^5.0.0",
     "purescript-either": "^5.0.0",
     "purescript-effect": "^3.0.0"
   },
   "devDependencies": {
-    "purescript-psci-support": "^5.0.0"
   }
 }

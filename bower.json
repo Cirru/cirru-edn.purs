@@ -1,0 +1,30 @@
+{
+  "name": "purescript-cirru-edn",
+  "ignore": [
+    "**/.*",
+    "node_modules",
+    "bower_components",
+    "output"
+  ],
+  "authors": [
+    "jiyinyiyong <jiyinyiyong@gmail.com>"
+  ],
+  "license": "MIT",
+  "keywords": [
+    "cirru"
+  ],
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/Cirru/cirru-edn.purs.git"
+  },
+  "dependencies": {
+    "purescript-prelude": "^5.0.0",
+    "purescript-cirru-parser": "^0.0.3",
+    "purescript-console": "^5.0.0",
+    "purescript-either": "^5.0.0",
+    "purescript-effect": "^3.0.0"
+  },
+  "devDependencies": {
+    "purescript-psci-support": "^5.0.0"
+  }
+}

@@ -4,28 +4,30 @@ import Data.Either
 import Data.Eq
 import Prelude
 
-import Cirru.Node (CirruNode(..))
-import Cirru.Parser (parseCirru)
 import Data.Array (head, length, (!!))
 import Data.Array as DataArr
 import Data.Either (Either(..))
 import Data.Map.Internal (Map)
+import Data.Map as DataMap
 import Data.Maybe (Maybe(..), fromJust)
 import Data.Number as DataNum
-import Data.Set (Set, fromFoldable, toUnfoldable)
+import Data.Tuple
+import Data.Set (Set(..), fromFoldable, size)
+import Data.Set as DataSet
 import Data.String.Common (joinWith)
 import Data.String.NonEmpty.CodeUnits (charAt, drop)
 import Data.String.NonEmpty.Internal (fromString, unsafeFromString, toString)
 import Data.String.Regex (regex, test)
 import Data.String.Regex.Flags (noFlags)
 import Data.Traversable (traverse)
-import Debug (spy)
 import Effect (Effect)
 import Effect.Class.Console (log)
-import Effect.Exception (throw, error)
 import Partial.Unsafe (unsafePartial)
 
--- | Used inside Maps
+import Cirru.Node (CirruNode(..), isCirruLeaf)
+import Cirru.Parser (parseCirru)
+
+-- | only uused for displaying, internall it's using Tuple
 data CrEdnKv = CrEdnKv CirruEdn CirruEdn
 
 instance showCrEdnKv :: Show CrEdnKv where
@@ -40,19 +42,17 @@ arrayGet xs n = unsafePartial $ fromJust $ xs !! n
 
 -- | data structure for Cirru EDN.Boolean
 -- | notice that Map and Set are not fully realized
-data CirruEdn = CrEdnString String |
-                CrEdnNumber Number |
-                CrEdnKeyword String |
-                CrEdnSymbol String |
+data CirruEdn = CrEdnNil |
                 CrEdnBool Boolean |
-                CrEdnList (Array CirruEdn) |
-                -- for EDN, use Array for convenience
-                -- need extra handling when hydrating into data
-                CrEdnSet (Array CirruEdn) |
-                CrEdnMap (Array CrEdnKv) |
-                CrEdnRecord String (Array String) (Array CirruEdn) |
+                CrEdnNumber Number |
+                CrEdnSymbol String |
+                CrEdnKeyword String |
+                CrEdnString String |
                 CrEdnQuote CirruNode |
-                CrEdnNil
+                CrEdnList (Array CirruEdn) |
+                CrEdnSet (Set CirruEdn) |
+                CrEdnMap (Map CirruEdn CirruEdn) |
+                CrEdnRecord String (Array String) (Array CirruEdn)
 
 -- | if parsing failed, original Cirru Nodes are returned
 type CrEdnParsed = Either CirruNode CirruEdn
@@ -122,11 +122,6 @@ allLeaves ys = case ys of
       CirruLeaf _ -> allLeaves $ CirruList (DataArr.drop 1 xs)
     Nothing -> true
 
-isLeaf :: CirruNode -> Boolean
-isLeaf x = case x of
-  CirruLeaf _ -> true
-  CirruList _ -> false
-
 getLeafStr :: CirruNode -> Either CirruNode String
 getLeafStr (CirruList xs) = Left (CirruList xs)
 getLeafStr (CirruLeaf s) = Right s
@@ -147,7 +142,7 @@ extractRecord name fields values = let
     lengthMatched = case fields, values of
       (CirruList xs), (CirruList ys) -> (length xs) == (length ys)
       _, _ -> false
-    fitRecord = (isLeaf name) && lengthMatched && allLeaves fields
+    fitRecord = (isCirruLeaf name) && lengthMatched && allLeaves fields
   in if fitRecord
     then do
       nameInString <- getLeafStr name
@@ -158,20 +153,20 @@ extractRecord name fields values = let
       Right $ CrEdnRecord nameInString fieldsString valueItems
     else Left $ CirruList [name, fields, values]
 
-extractKeyValuePair :: CirruNode -> Either CirruNode CrEdnKv
+extractKeyValuePair :: CirruNode -> Either CirruNode (Tuple CirruEdn CirruEdn)
 extractKeyValuePair (CirruLeaf s) = Left (CirruLeaf s)
 extractKeyValuePair (CirruList xs) = if (length xs) == 2
   then do
     k <- extractCirruEdn $ arrayGet xs 0
     v <- extractCirruEdn $ arrayGet xs 1
-    Right $ CrEdnKv k v
+    Right $ Tuple k v
   else Left (CirruList xs)
 
--- | TODO, inherit Ord for Map
+-- | extract Map
 extractMap :: (Array CirruNode) -> CrEdnParsed
 extractMap xs = do
   ys <- traverse extractKeyValuePair xs
-  Right $ CrEdnMap ys
+  Right $ CrEdnMap (DataMap.fromFoldable ys)
 
 -- | extract Cirru EDN list from Cirru Nodes
 extractList :: (Array CirruNode) -> CrEdnParsed
@@ -179,11 +174,11 @@ extractList xs = do
   ys <- traverse extractCirruEdn xs
   Right $ CrEdnList ys
 
--- | TODO, inherit Ord for Set
+-- | extract Set
 extractSet :: (Array CirruNode) -> CrEdnParsed
 extractSet xs = do
   ys <- traverse extractCirruEdn xs
-  Right $ CrEdnSet ys
+  Right $ CrEdnSet (fromFoldable ys)
 
 -- | parse String content into Cirru EDN structure,
 -- | returns original Cirru Nodes if pasing failed.
@@ -210,23 +205,99 @@ instance cirruEdnEq :: Eq CirruEdn where
   eq (CrEdnBool x) (CrEdnBool y) = x == y
   eq (CrEdnQuote x) (CrEdnQuote y) = x == y
   eq (CrEdnList xs) (CrEdnList ys) = xs == ys
-  eq (CrEdnSet xs) (CrEdnSet ys) = xs == ys -- TODO need to handle Ord
+  eq (CrEdnSet xs) (CrEdnSet ys) = xs == ys
   eq (CrEdnMap xs) (CrEdnMap ys) = xs == ys
   eq (CrEdnRecord xName xFields xs) (CrEdnRecord yName yFields ys) =
     xName == yName && xFields == yFields && xs == ys
   eq _ _ = false
 
+setToArray :: forall k. Set k -> Array k
+setToArray = DataSet.toUnfoldable
+
+tupleToPair :: (Tuple CirruEdn CirruEdn) -> CrEdnKv
+tupleToPair (Tuple x y) = CrEdnKv x y
+
+mapToArray :: forall k v. Map k v -> Array (Tuple k v)
+mapToArray = DataMap.toUnfoldable
+
 instance showCirruEdn :: Show CirruEdn where
   show CrEdnNil = "nil"
   show (CrEdnBool x) = show x
-  show (CrEdnKeyword x) = ":" <> x
-  show (CrEdnSymbol x) = "'" <> x
-  show (CrEdnString x) = "|" <> x
   show (CrEdnNumber x) = show x
+  show (CrEdnSymbol x) = "'" <> x
+  show (CrEdnKeyword x) = ":" <> x
+  show (CrEdnString x) = "|" <> x
   show (CrEdnQuote x) = "(quote " <> (show x) <> ")"
   show (CrEdnList xs) = "([] " <> (joinWith " " (map show xs)) <> ")"
-  show (CrEdnSet xs) = "(#{} " <> (joinWith " " (map show xs)) <> ")"
-  show (CrEdnMap xs) = "({} " <> (joinWith " " (map show xs)) <> ")"
+  show (CrEdnSet xs) = "(#{} " <> (joinWith " " (map show (setToArray xs))) <> ")"
+  show (CrEdnMap xs) = "({} " <> (joinWith " " (map show (map tupleToPair (mapToArray xs)))) <> ")"
   show (CrEdnRecord name fields values) = "(%{} " <> name <>
     " (" <> (joinWith " " fields) <> ")" <>
     " (" <> (joinWith " " (map show values)) <> ")"
+
+instance ordCrEdnKv :: Ord CrEdnKv where
+  compare (CrEdnKv k1 v1) (CrEdnKv k2 v2) = case compare k1 k2 of
+    LT -> LT
+    GT -> GT
+    EQ -> compare k1 k2
+
+instance ordCirruEdn :: Ord CirruEdn where
+  compare CrEdnNil CrEdnNil  = EQ
+  compare CrEdnNil _         = LT
+  compare _ CrEdnNil         = GT
+
+  compare (CrEdnBool false) (CrEdnBool true)  = LT
+  compare (CrEdnBool true) (CrEdnBool false)  = GT
+  compare (CrEdnBool _) (CrEdnBool _)         = EQ
+  compare (CrEdnBool _) _                     = LT
+  compare _ (CrEdnBool _)                     = GT
+
+  compare (CrEdnNumber x) (CrEdnNumber y) = compare x y
+  compare (CrEdnNumber x) _ = LT
+  compare _ (CrEdnNumber x) = GT
+
+  compare (CrEdnSymbol x) (CrEdnSymbol y)  = compare x y
+  compare (CrEdnSymbol x) _                = LT
+  compare _ (CrEdnSymbol x)                = GT
+
+  compare (CrEdnKeyword x) (CrEdnKeyword y)  = compare x y
+  compare (CrEdnKeyword x) _                 = LT
+  compare _ (CrEdnKeyword x)                 = GT
+
+  compare (CrEdnString x) (CrEdnString y)  = compare x y
+  compare (CrEdnString x) _                = LT
+  compare _ (CrEdnString x)                = GT
+
+  compare (CrEdnQuote x) (CrEdnQuote y) = compare x y
+  compare (CrEdnQuote x) _              = LT
+  compare _ (CrEdnQuote x)              = GT
+
+  compare (CrEdnList xs) (CrEdnList ys) = case (compare (length xs) (length ys)) of
+    LT -> LT
+    GT -> GT
+    EQ -> compare xs ys
+  compare (CrEdnList xs) _ = LT
+  compare _ (CrEdnList xs) = GT
+
+  compare (CrEdnSet xs) (CrEdnSet ys) = case (compare (DataSet.size xs) (DataSet.size ys)) of
+    LT -> LT
+    GT -> GT
+    EQ -> compare xs ys
+  compare (CrEdnSet xs) _ = LT
+  compare _ (CrEdnSet xs) = GT
+
+  compare (CrEdnMap xs) (CrEdnMap ys) = case (compare (DataMap.size xs) (DataMap.size ys)) of
+    LT -> LT
+    GT -> GT
+    EQ -> compare xs ys
+  compare (CrEdnMap xs) _ = LT
+  compare _ (CrEdnMap xs) = GT
+
+  compare (CrEdnRecord name1 fields1 values1) (CrEdnRecord name2 fields2 values2) =
+    case compare name1 name2 of
+      LT -> LT
+      GT -> GT
+      EQ -> case compare fields1 fields2 of
+        LT -> LT
+        GT -> GT
+        EQ -> compare values1 values2

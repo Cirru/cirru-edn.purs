@@ -2,19 +2,20 @@ module Test.Main where
 
 import Prelude
 
-import Effect (Effect)
-import Effect.Class.Console (log)
-
-import Data.Either (Either(..))
-import Data.Tuple
-import Data.Map as DataMap
-
+import Cirru.Edn (CirruEdn(..), parseCirruEdn, writeCirruEdn)
 import Cirru.Node (CirruNode(..))
-import Cirru.Edn (parseCirruEdn, CirruEdn(..))
-
+import Data.Either (Either(..))
+import Data.Map as DataMap
+import Data.Map as Map
+import Data.String (trim)
+import Data.Tuple (Tuple(..))
+import Effect (Effect)
+import Effect.Class (liftEffect)
+import Effect.Class.Console (log)
+import Effect.Exception (throw)
 import Test.Unit (suite, test)
-import Test.Unit.Main (runTest)
 import Test.Unit.Assert as Assert
+import Test.Unit.Main (runTest)
 
 main :: Effect Unit
 main = do
@@ -102,3 +103,40 @@ main = do
 
         Assert.equal LT $ compare (parseCirruEdn "quote $ def a") (parseCirruEdn "#{}")
         Assert.equal LT $ compare (parseCirruEdn "do nil") (parseCirruEdn "quote $ def b")
+
+  runTest do
+    suite "generating" do
+      test "compare format" do
+        Assert.equal "do nil" (trim (writeCirruEdn CrEdnNil))
+        Assert.equal "do true" (trim (writeCirruEdn (CrEdnBool true)))
+        Assert.equal "do 1.0" (trim (writeCirruEdn (CrEdnNumber 1.0)))
+        Assert.equal "[]" (trim (writeCirruEdn (CrEdnList [])))
+        Assert.equal "[] :a" (trim (writeCirruEdn (CrEdnList [CrEdnKeyword "a"])))
+        Assert.equal "{} (:a 1.0)\n  :b 2.0"
+          (trim (writeCirruEdn (CrEdnMap
+            (Map.fromFoldable [ Tuple (CrEdnKeyword "a") (CrEdnNumber 1.0)
+                              , Tuple (CrEdnKeyword "b") (CrEdnNumber 2.0)
+                              ]))))
+        -- TODO need rework
+        -- case parseCirruEdn recordDemo1 of
+        --   Right nodes -> Assert.equal recordDemo1 (writeCirruEdn nodes)
+        --   Left errorNodes -> liftEffect (throw $ "Failed parsing: " <> show errorNodes)
+        case parseCirruEdn dictDemo1 of
+          Right nodes -> Assert.equal dictDemo1 (writeCirruEdn nodes)
+          Left errorNodes -> liftEffect (throw $ "Failed parsing: " <> show errorNodes)
+
+recordDemo1 :: String
+recordDemo1 = """
+%{} Demo (a 1) (b 2) (c ([] 1 2 3))
+"""
+
+dictDemo1 :: String
+dictDemo1 = """
+{} (:a 1.0)
+  :b $ [] 2.0 3.0 4.0
+  :c $ {} (:d 4.0)
+    :e true
+    :f :g
+    :h $ {} (|a 1.0)
+      |b true
+"""

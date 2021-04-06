@@ -1,31 +1,29 @@
 module Cirru.Edn where
 
-import Data.Either
-import Data.Eq
 import Prelude
-
-import Data.Array (head, length, (!!))
-import Data.Array as DataArr
-import Data.Either (Either(..))
-import Data.Map.Internal (Map)
-import Data.Map as DataMap
-import Data.Maybe (Maybe(..), fromJust)
-import Data.Number as DataNum
-import Data.Tuple
-import Data.Set (Set(..), fromFoldable, size)
-import Data.Set as DataSet
-import Data.String.Common (joinWith)
-import Data.String.NonEmpty.CodeUnits (charAt, drop)
-import Data.String.NonEmpty.Internal (fromString, unsafeFromString, toString)
-import Data.String.Regex (regex, test)
-import Data.String.Regex.Flags (noFlags)
-import Data.Traversable (traverse)
-import Effect (Effect)
-import Effect.Class.Console (log)
-import Partial.Unsafe (unsafePartial)
 
 import Cirru.Node (CirruNode(..), isCirruLeaf)
 import Cirru.Parser (parseCirru)
+import Cirru.Writer (writeCirru)
+import Data.Array (head, length, zip, (!!), (:))
+import Data.Array as DataArr
+import Data.Either (Either(..))
+import Data.Map as DataMap
+import Data.Map as Map
+import Data.Map.Internal (Map)
+import Data.Maybe (Maybe(..), fromJust)
+import Data.Number as DataNum
+import Data.Set (Set, fromFoldable)
+import Data.Set as DataSet
+import Data.Set as Set
+import Data.String.Common (joinWith)
+import Data.String.NonEmpty.CodeUnits (charAt, drop)
+import Data.String.NonEmpty.Internal (fromString, toString)
+import Data.String.Regex (regex, test)
+import Data.String.Regex.Flags (noFlags)
+import Data.Traversable (traverse)
+import Data.Tuple (Tuple(..))
+import Partial.Unsafe (unsafePartial)
 
 -- | only uused for displaying, internall it's using Tuple
 data CrEdnKv = CrEdnKv CirruEdn CirruEdn
@@ -111,6 +109,31 @@ extractCirruEdn (CirruList xs) = case (xs !! 0) of
         else Left (CirruList xs)
       _ -> Left (CirruList xs)
 
+-- | turn CirruEdn into CirruNode
+assembleCirruNode :: CirruEdn -> CirruNode
+assembleCirruNode edn = case edn of
+  CrEdnNil -> CirruLeaf "nil"
+  CrEdnBool t -> CirruLeaf (show t)
+  CrEdnNumber n -> CirruLeaf (show n)
+  CrEdnSymbol s -> CirruLeaf ("'" <> s)
+  CrEdnKeyword s -> CirruLeaf (":" <> s)
+  CrEdnString s -> CirruLeaf ("|" <> s)
+  CrEdnQuote xs -> CirruList [ CirruLeaf "quote", xs ]
+  CrEdnList xs -> CirruList ((CirruLeaf "[]") : (map assembleCirruNode xs))
+  CrEdnSet xs -> CirruList ((CirruLeaf "#{}") : (map assembleCirruNode (Set.toUnfoldable xs)))
+  CrEdnMap m ->
+    CirruList ((CirruLeaf "{}") : pairs)
+    where
+      pairs = map (\(Tuple k v) ->
+        CirruList [ assembleCirruNode k, assembleCirruNode v ]
+      ) (Map.toUnfoldable m)
+  CrEdnRecord name fields values ->
+    CirruList ((CirruLeaf "%{}") : (CirruLeaf name) : pairs)
+    where
+      pairs = map (\(Tuple k v) ->
+        CirruList [ assembleCirruNode (CrEdnString k), assembleCirruNode v ]
+      ) (zip fields values)
+
 -- | returns false if it's a leaf,
 -- | returns false if there's array inside array
 allLeaves :: CirruNode -> Boolean
@@ -137,6 +160,7 @@ getLeavesStr ys = case ys of
         Right $ DataArr.cons s follows
       CirruList zs -> Left (CirruList zs)
 
+-- TODO syntax is wrong, need to rewrite
 extractRecord :: CirruNode -> CirruNode -> CirruNode -> CrEdnParsed
 extractRecord name fields values = let
     lengthMatched = case fields, values of
@@ -195,6 +219,12 @@ parseCirruEdn s = case (parseCirru s) of
           CirruLeaf _ -> Left (CirruList xs)
           CirruList _ -> extractCirruEdn ys
         Nothing -> Left (CirruList xs)
+
+-- | generate Cirru code from Cirru EDN data
+writeCirruEdn :: CirruEdn -> String
+writeCirruEdn edn = case assembleCirruNode edn of
+  CirruLeaf x -> writeCirru (CirruList [(CirruList [CirruLeaf "do", CirruLeaf x])]) {useInline: false}
+  CirruList xs -> writeCirru (CirruList [(CirruList xs)]) {useInline: false}
 
 instance cirruEdnEq :: Eq CirruEdn where
   eq CrEdnNil CrEdnNil = true

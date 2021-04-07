@@ -9,6 +9,7 @@ import Cirru.Node (CirruNode(..), isCirruLeaf)
 import Cirru.Parser (parseCirru)
 import Cirru.Writer (writeCirru)
 import Data.Array (head, length, zip, (!!), (:))
+import Data.Array as Array
 import Data.Array as DataArr
 import Data.Either (Either(..))
 import Data.Map as DataMap
@@ -16,7 +17,7 @@ import Data.Map as Map
 import Data.Map.Internal (Map)
 import Data.Maybe (Maybe(..), fromJust)
 import Data.Number as DataNum
-import Data.Set (Set, fromFoldable)
+import Data.Set (Set)
 import Data.Set as DataSet
 import Data.Set as Set
 import Data.String.Common (joinWith)
@@ -25,7 +26,7 @@ import Data.String.NonEmpty.Internal (fromString, toString)
 import Data.String.Regex (regex, test)
 import Data.String.Regex.Flags (noFlags)
 import Data.Traversable (traverse)
-import Data.Tuple (Tuple(..))
+import Data.Tuple (Tuple(..), fst, snd)
 import Partial.Unsafe (unsafePartial)
 
 -- | only uused for displaying, internall it's using Tuple
@@ -111,8 +112,8 @@ extractCirruEdn (CirruList xs) = case (xs !! 0) of
       "{}" -> extractMap (DataArr.drop 1 xs)
       "#{}" -> extractSet (DataArr.drop 1 xs)
       "%{}" ->
-        if (length xs) == 4 then
-          extractRecord (arrayGet xs 1) (arrayGet xs 2) (arrayGet xs 3)
+        if (length xs) >= 2 then
+          extractRecord (arrayGet xs 1) (Array.drop 2 xs)
         else
           Left (CirruList xs)
       _ -> Left (CirruList xs)
@@ -142,7 +143,7 @@ assembleCirruNode edn = case edn of
     pairs =
       map
         ( \(Tuple k v) ->
-            CirruList [ assembleCirruNode (CrEdnString k), assembleCirruNode v ]
+            CirruList [ (CirruLeaf k), assembleCirruNode v ]
         )
         (zip fields values)
 
@@ -162,36 +163,32 @@ getLeafStr (CirruList xs) = Left (CirruList xs)
 
 getLeafStr (CirruLeaf s) = Right s
 
-getLeavesStr :: CirruNode -> Either CirruNode (Array String)
-getLeavesStr ys = case ys of
-  CirruLeaf _ -> Left ys
-  CirruList xs -> case xs !! 0 of
-    Nothing -> Right []
-    Just x0 -> case x0 of
-      CirruLeaf s -> do
-        follows <- getLeavesStr $ CirruList (DataArr.drop 1 xs)
-        Right $ DataArr.cons s follows
-      CirruList zs -> Left (CirruList zs)
-
--- TODO syntax is wrong, need to rewrite
-extractRecord :: CirruNode -> CirruNode -> CirruNode -> CrEdnParsed
-extractRecord name fields values =
-  let
-    lengthMatched = case fields, values of
-      (CirruList xs), (CirruList ys) -> (length xs) == (length ys)
-      _, _ -> false
-
-    fitRecord = (isCirruLeaf name) && lengthMatched && allLeaves fields
-  in
-    if fitRecord then do
-      nameInString <- getLeafStr name
-      fieldsString <- getLeavesStr fields
-      valueItems <- case values of
-        CirruList xs -> traverse extractCirruEdn xs
-        CirruLeaf _ -> Left values
-      Right $ CrEdnRecord nameInString fieldsString valueItems
+parseRecordPair :: CirruNode -> Either CirruNode (Tuple String CirruEdn)
+parseRecordPair node = case node of
+  CirruList xs ->
+    if Array.length xs == 2 then case xs !! 0, xs !! 1 of
+      Just (CirruLeaf k), Just v -> do
+        edn <- extractCirruEdn v
+        Right (Tuple k edn)
+      Just a, _ -> Left node
+      Nothing, _ -> Left node
     else
-      Left $ CirruList [ name, fields, values ]
+      Left node
+  CirruLeaf _ -> Left node
+
+extractRecord :: CirruNode -> Array CirruNode -> CrEdnParsed
+extractRecord name pairs = do
+  nameInString <-
+    if isCirruLeaf name then
+      getLeafStr name
+    else
+      Left name
+  recordPairs <- traverse parseRecordPair pairs
+  let
+    fieldsString = map fst recordPairs
+  let
+    valueItems = map snd recordPairs
+  Right $ CrEdnRecord nameInString fieldsString valueItems
 
 extractKeyValuePair :: CirruNode -> Either CirruNode (Tuple CirruEdn CirruEdn)
 extractKeyValuePair (CirruLeaf s) = Left (CirruLeaf s)
@@ -220,7 +217,7 @@ extractList xs = do
 extractSet :: (Array CirruNode) -> CrEdnParsed
 extractSet xs = do
   ys <- traverse extractCirruEdn xs
-  Right $ CrEdnSet (fromFoldable ys)
+  Right $ CrEdnSet (Set.fromFoldable ys)
 
 -- | parse String content into Cirru EDN structure,
 -- | returns original Cirru Nodes if pasing failed.
